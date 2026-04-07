@@ -3,40 +3,30 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { users } from "@/data/mockData";
+import Link from "next/link";
+import { getDashboardPath } from "@/lib/auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const { login } = useAuth();
   const router = useRouter();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setIsSubmitting(true);
 
-    // Look for matching user in mockData
-    const foundUser = users.find(u => u.email === email && u.password === password);
-    
-    if (foundUser) {
-      if (foundUser.status === "Blocked") {
-        setError("Your account has been suspended by the Admin.");
-        return;
-      }
-      
-      login(foundUser);
-      
-      // Redirect based on role
-      switch (foundUser.role) {
-        case "User": router.push("/dashboard/user"); break;
-        case "Owner": router.push("/dashboard/owner"); break;
-        case "Admin": router.push("/dashboard/admin"); break;
-        default: router.push("/");
-      }
-    } else {
-      setError("Invalid email or password.");
+    try {
+      const loggedInUser = await login({ email, password });
+      router.push(getDashboardPath(loggedInUser.role));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -71,11 +61,18 @@ export default function LoginPage() {
           />
           <button 
             type="submit"
-            className="w-full bg-blue-600 text-white font-semibold flex items-center justify-center py-3 rounded-xl hover:bg-blue-700 transition"
+            disabled={isSubmitting}
+            className="w-full bg-blue-600 text-white font-semibold flex items-center justify-center py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            Sign In Securely
+            {isSubmitting ? "Signing In..." : "Sign In Securely"}
           </button>
         </form>
+        <p className="mt-6 text-sm text-gray-500">
+          New here?{" "}
+          <Link href="/register" className="text-blue-600 hover:text-blue-700 font-semibold">
+            Create an account
+          </Link>
+        </p>
       </div>
     </div>
   );

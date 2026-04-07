@@ -5,12 +5,16 @@ import { Building2, Menu, LogOut, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { getDashboardPath, toAvatarInitial } from "@/lib/auth";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const displayName = user?.fullName || "User";
+  const displayPhone = user?.phoneNumber || "Phone not set";
+  const displayPicture = user?.profile?.profilePicture || "";
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -35,7 +39,7 @@ export default function Navbar() {
     router.push("/");
   };
 
-  const dashboardRoute = user ? `/dashboard/${user.role.toLowerCase()}` : "/login";
+  const dashboardRoute = user ? getDashboardPath(user.role) : "/login";
 
   return (
     <nav className="fixed top-0 w-full z-50 glass-morphism border-b bg-white/70 backdrop-blur-md">
@@ -49,9 +53,6 @@ export default function Navbar() {
           </div>
           
           <div className="hidden md:flex items-center space-x-8">
-             <Link href="/Test" className="text-gray-600 hover:text-blue-600 transition-colors font-medium">
-              Test 
-            </Link>
             <Link href="/properties" className="text-gray-600 hover:text-blue-600 transition-colors font-medium">
               Browse Flats
             </Link>
@@ -72,16 +73,28 @@ export default function Navbar() {
               <div 
                 ref={menuRef}
                 className="relative"
-                onMouseEnter={() => setIsMenuOpen(true)}
               >
-                <div className="h-10 w-10 cursor-pointer rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center border-2 border-blue-200">
-                  {user.name.charAt(0)}
-                </div>
-                
+                <button
+                  type="button"
+                  onClick={() => setIsMenuOpen((prev) => !prev)}
+                  className="flex items-center gap-2 cursor-pointer rounded-full pr-3 pl-1 py-1.5 bg-blue-50 text-blue-700 border border-blue-100"
+                >
+                  <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center border border-blue-200 overflow-hidden">
+                    {displayPicture ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={displayPicture} alt={displayName} className="w-full h-full object-cover" />
+                    ) : (
+                      toAvatarInitial(displayName)
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold hidden lg:inline">{displayName}</span>
+                </button>
+
                 {isMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50">
+                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50">
                     <div className="px-4 py-2 border-b border-gray-50 mb-2">
-                      <p className="text-sm font-semibold text-gray-900">{user.name}</p>
+                      <p className="text-sm font-semibold text-gray-900">{displayName}</p>
+                      <p className="text-xs text-gray-500 truncate">{displayPhone}</p>
                       <p className="text-xs text-gray-500 truncate">{user.email}</p>
                     </div>
                     <Link 
@@ -104,14 +117,8 @@ export default function Navbar() {
                     </button>
                   </div>
                 )}
-              </div>
+                </div>
             )}
-            <Link 
-                href="/Test" 
-                className="px-6 py-2 bg-blue-600 text-white font-medium rounded-full hover:bg-blue-700 transition-colors shadow-sm"
-              >
-                Test
-              </Link>
           </div>
           
           <div className="md:hidden flex items-center">

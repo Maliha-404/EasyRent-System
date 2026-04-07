@@ -1,21 +1,22 @@
 "use client";
-import { buildings, flats, bookings, payments, notices } from "@/data/mockData";
+import { buildings, flats, bookings, notices } from "@/data/mockData";
 import { Building2, Home, Receipt, Megaphone, Plus, PlusCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { canAccessDashboard } from "@/lib/auth";
 
 export default function OwnerDashboard() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!user || user.role !== "Owner") {
+    if (!isLoading && (!user || !canAccessDashboard(user.role, "owner"))) {
       router.push("/login");
     }
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
-  if (!user) return null;
+  if (isLoading || !user) return null;
 
   const ownerId = user.id;
   const myBuildings = buildings.filter(b => b.ownerId === ownerId);

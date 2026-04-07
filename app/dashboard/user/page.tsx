@@ -4,18 +4,19 @@ import { Calendar, CheckCircle, Clock, XCircle, CreditCard, Receipt } from "luci
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { canAccessDashboard } from "@/lib/auth";
 
 export default function UserDashboard() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!user || user.role !== "User") {
+    if (!isLoading && (!user || !canAccessDashboard(user.role, "user"))) {
       router.push("/login");
     }
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
-  if (!user) return null;
+  if (isLoading || !user) return null;
 
   const userBookings = bookings.filter(b => b.userId === user.id);
   const userPayments = payments.filter(p => p.userId === user.id && p.purpose === "Rent");
