@@ -1,10 +1,23 @@
-import { flats } from "@/data/mockData";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { PropertyItem } from "@/types/property";
 
-export default function FlatDetailsPage({ params }: { params: { id: string } }) {
-  const flat = flats.find(f => f.id === params.id);
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
+
+async function loadProperty(id: string): Promise<PropertyItem | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/public/properties/${id}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.property || null;
+  } catch {
+    return null;
+  }
+}
+
+export default async function FlatDetailsPage({ params }: { params: { id: string } }) {
+  const flat = await loadProperty(params.id);
 
   if (!flat) {
     return (

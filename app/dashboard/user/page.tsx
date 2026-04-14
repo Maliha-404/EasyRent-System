@@ -1,25 +1,72 @@
 "use client";
-import { bookings, payments, flats } from "@/data/mockData";
 import { Calendar, CheckCircle, Clock, XCircle, CreditCard, Receipt } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { canAccessDashboard } from "@/lib/auth";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
+
+type TenantBooking = {
+  id: string;
+  unitId: string;
+  unitNumber: string;
+  date: string;
+  status: string;
+  advanceAmount: number;
+};
+
+type TenantPayment = {
+  id: string;
+  bookingId: string;
+  date: string;
+  amount: number;
+  purpose: string;
+  status: string;
+};
+
 export default function UserDashboard() {
-  const { user, isLoading } = useAuth();
+  const { user, token, isLoading } = useAuth();
   const router = useRouter();
+  const [bookings, setBookings] = useState<TenantBooking[]>([]);
+  const [payments, setPayments] = useState<TenantPayment[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    if (!isLoading && (!user || !canAccessDashboard(user.role, "user"))) {
+    if (!isLoading && (!user || !canAccessDashboard(user.role, "tenant"))) {
       router.push("/login");
     }
   }, [user, isLoading, router]);
 
+  useEffect(() => {
+    if (isLoading || !token || !user || !canAccessDashboard(user.role, "tenant")) return;
+
+    const load = async () => {
+      setLoadingData(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/tenant`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error("Failed to load tenant dashboard data");
+
+        const data = await response.json();
+        setBookings(data.bookings || []);
+        setPayments(data.payments || []);
+      } catch {
+        setBookings([]);
+        setPayments([]);
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    load();
+  }, [isLoading, token, user]);
+
   if (isLoading || !user) return null;
 
-  const userBookings = bookings.filter(b => b.userId === user.id);
-  const userPayments = payments.filter(p => p.userId === user.id && p.purpose === "Rent");
+  const userBookings = bookings;
+  const userPayments = useMemo(() => payments.filter((payment) => payment.purpose === "Rent"), [payments]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -73,10 +120,9 @@ export default function UserDashboard() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {userBookings.map((booking) => {
-                    const flat = flats.find(f => f.id === booking.flatId);
                     return (
                       <tr key={booking.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4 font-semibold">Flat {flat?.flat_number}</td>
+                        <td className="px-6 py-4 font-semibold">Flat {booking.unitNumber}</td>
                         <td className="px-6 py-4 text-gray-500">{booking.date}</td>
                         <td className="px-6 py-4 font-medium text-gray-900">৳{booking.advanceAmount.toLocaleString()}</td>
                         <td className="px-6 py-4">
@@ -95,6 +141,11 @@ export default function UserDashboard() {
                       </tr>
                     );
                   })}
+                  {!loadingData && userBookings.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-8 text-center text-gray-500">No bookings found yet.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -150,6 +201,10 @@ export default function UserDashboard() {
           </section>
 
         </div>
+
+        {loadingData && (
+          <p className="text-center text-sm text-gray-500 mt-6">Loading tenant dashboard data...</p>
+        )}
       </div>
     </div>
   );

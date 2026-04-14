@@ -28,7 +28,7 @@ const normalizeUser = (raw: unknown): AuthUser | null => {
   const id = String(data.id || "").trim();
   const fullName = String(data.fullName || data.name || "").trim();
   const email = String(data.email || "").trim();
-  const role = String(data.role || "user").trim().toLowerCase();
+  const role = String(data.role || "tenant").trim().toLowerCase();
 
   if (!id || !fullName || !email) return null;
 
@@ -36,7 +36,14 @@ const normalizeUser = (raw: unknown): AuthUser | null => {
     id,
     fullName,
     email,
-    role: (role === "owner" || role === "admin" ? role : "user") as AuthUser["role"],
+    role: (
+      role === "admin" ||
+      role === "tenant" ||
+      role === "land_owner" ||
+      role === "flat_owner"
+        ? role
+        : "tenant"
+    ) as AuthUser["role"],
     phoneNumber: String(data.phoneNumber || "").trim(),
     profile: {
       profilePicture: String(profile.profilePicture || "").trim(),

@@ -1,24 +1,29 @@
 import { UserRole } from "@/types/auth";
 
 const roleMap: Record<string, UserRole> = {
-  user: "user",
-  tenant: "user",
-  buyer: "user",
-  owner: "owner",
-  landlord: "owner",
-  seller: "owner",
+  user: "tenant",
+  tenant: "tenant",
+  buyer: "tenant",
+  renter: "tenant",
+  owner: "flat_owner",
+  flat_owner: "flat_owner",
+  flatowner: "flat_owner",
+  seller: "flat_owner",
+  land_owner: "land_owner",
+  landowner: "land_owner",
+  landlord: "land_owner",
   admin: "admin",
   superadmin: "admin",
 };
 
 export function normalizeRole(role: string | undefined | null): UserRole {
   const normalized = String(role || "").trim().toLowerCase();
-  return roleMap[normalized] || "user";
+  return roleMap[normalized] || "tenant";
 }
 
 export function getDashboardPath(role: string | undefined | null): string {
   const normalized = normalizeRole(role);
-  if (normalized === "owner") return "/dashboard/owner";
+  if (normalized === "land_owner" || normalized === "flat_owner") return "/dashboard/owner";
   if (normalized === "admin") return "/dashboard/admin";
   return "/dashboard/user";
 }

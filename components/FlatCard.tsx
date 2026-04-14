@@ -1,14 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { BedDouble, Bath, Square, Building } from "lucide-react";
-import { Flat } from "@/data/mockData";
+import { PropertyItem } from "@/types/property";
 
 interface FlatCardProps {
-  flat: Flat;
+  flat: PropertyItem;
 }
 
 export default function FlatCard({ flat }: FlatCardProps) {
-  const isAvailable = flat.status === "Available";
+  const normalizedStatus = String(flat.status || "").toLowerCase();
+  const isAvailable = normalizedStatus === "available" || normalizedStatus === "listed";
   
   return (
     <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 flex flex-col h-full">
@@ -22,7 +23,7 @@ export default function FlatCard({ flat }: FlatCardProps) {
         <div className="absolute top-4 left-4">
           <span className={`px-3 py-1 rounded-full text-xs font-semibold shadow-sm backdrop-blur-md ${
             isAvailable ? "bg-emerald-500/90 text-white" : 
-            flat.status === "Booked" ? "bg-amber-500/90 text-white" : "bg-red-500/90 text-white"
+            normalizedStatus === "booked" ? "bg-amber-500/90 text-white" : "bg-red-500/90 text-white"
           }`}>
             {flat.status}
           </span>

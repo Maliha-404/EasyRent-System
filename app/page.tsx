@@ -1,11 +1,23 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Search, MapPin, Building, ShieldCheck, CalendarCheck } from "lucide-react";
-import { areas, flats } from "@/data/mockData";
 import FlatCard from "@/components/FlatCard";
+import { PropertyItem, ZoneOption } from "@/types/property";
 
-export default function Home() {
-  const featuredFlats = flats.slice(0, 6);
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
+
+async function loadHomeData(): Promise<{ zones: ZoneOption[]; featuredFlats: PropertyItem[] }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/public/home`, { cache: "no-store" });
+    if (!response.ok) return { zones: [], featuredFlats: [] };
+    return await response.json();
+  } catch {
+    return { zones: [], featuredFlats: [] };
+  }
+}
+
+export default async function Home() {
+  const { zones, featuredFlats } = await loadHomeData();
 
   return (
     <div className="w-full">
@@ -32,7 +44,7 @@ export default function Home() {
                 <MapPin className="text-gray-400 h-5 w-5 mr-3 flex-shrink-0" />
                 <select className="w-full py-3 bg-transparent text-gray-700 outline-none cursor-pointer appearance-none font-medium">
                   <option value="">Select an Area</option>
-                  {areas.map(a => (
+                  {zones.map(a => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
@@ -66,10 +78,10 @@ export default function Home() {
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {areas.map((area) => (
+            {zones.map((area) => (
               <Link href="/properties" key={area.id} className="group relative rounded-2xl overflow-hidden h-72 shadow-sm hover:shadow-xl transition-all block">
                 <Image
-                  src={area.image || "https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&q=80&w=800"}
+                  src={"https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&q=80&w=800"}
                   alt={area.name}
                   fill
                   className="object-cover group-hover:scale-105 transition-transform duration-700"

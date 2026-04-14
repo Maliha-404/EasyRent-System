@@ -1,32 +1,109 @@
 "use client";
-import { buildings, flats, bookings, notices } from "@/data/mockData";
 import { Building2, Home, Receipt, Megaphone, Plus, PlusCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { canAccessDashboard } from "@/lib/auth";
+import { useEffect, useMemo, useState } from "react";
+import { normalizeRole } from "@/lib/auth";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
+
+type OwnerBuilding = {
+  id: string;
+  name: string;
+  address: string;
+  units: Array<{
+    id: string;
+    unitNumber: string;
+    type: string;
+    status: string;
+    price: number;
+    floor: number;
+  }>;
+};
+
+type OwnerBooking = {
+  id: string;
+  unitId: string;
+  date: string;
+  status: string;
+  advanceAmount: number;
+};
+
+type OwnerPayment = {
+  id: string;
+  bookingId: string;
+  amount: number;
+  purpose: string;
+  status: string;
+  date: string;
+};
+
+type OwnerNotice = {
+  id: string;
+  title: string;
+  content: string;
+  date: string;
+  buildingId: string;
+};
 
 export default function OwnerDashboard() {
-  const { user, isLoading } = useAuth();
+  const { user, token, isLoading } = useAuth();
   const router = useRouter();
+  const [buildings, setBuildings] = useState<OwnerBuilding[]>([]);
+  const [bookings, setBookings] = useState<OwnerBooking[]>([]);
+  const [payments, setPayments] = useState<OwnerPayment[]>([]);
+  const [notices, setNotices] = useState<OwnerNotice[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    if (!isLoading && (!user || !canAccessDashboard(user.role, "owner"))) {
+    const role = normalizeRole(user?.role);
+    const hasOwnerAccess = role === "land_owner" || role === "flat_owner";
+    if (!isLoading && (!user || !hasOwnerAccess)) {
       router.push("/login");
     }
   }, [user, isLoading, router]);
 
+  useEffect(() => {
+    const role = normalizeRole(user?.role);
+    const hasOwnerAccess = role === "land_owner" || role === "flat_owner";
+    if (isLoading || !token || !hasOwnerAccess) return;
+
+    const load = async () => {
+      setLoadingData(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/owner`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error("Failed to load owner dashboard data");
+
+        const data = await response.json();
+        setBuildings(data.buildings || []);
+        setBookings(data.bookings || []);
+        setPayments(data.payments || []);
+        setNotices(data.notices || []);
+      } catch {
+        setBuildings([]);
+        setBookings([]);
+        setPayments([]);
+        setNotices([]);
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    load();
+  }, [isLoading, token, user]);
+
   if (isLoading || !user) return null;
 
-  const ownerId = user.id;
-  const myBuildings = buildings.filter(b => b.ownerId === ownerId);
-  const myFlats = flats.filter(f => myBuildings.some(b => b.id === f.buildingId));
-  const myBookings = bookings.filter(bk => myFlats.some(f => f.id === bk.flatId));
-  const myNotices = notices.filter(n => n.ownerId === ownerId);
+  const myFlats = useMemo(() => buildings.flatMap((building) => building.units), [buildings]);
+  const myBookings = bookings;
+  const myNotices = notices;
+  const confirmedPayments = payments.filter((p) => p.status === "Paid");
 
   // Statistics Calculation
   const bookedFlatsCount = myBookings.filter(b => b.status === "Confirmed").length;
-  const totalAdvanceReceived = myBookings.filter(b => b.status === "Confirmed").reduce((sum, b) => sum + b.advanceAmount, 0);
+  const totalAdvanceReceived = confirmedPayments.filter((p) => p.purpose === "Advance").reduce((sum, p) => sum + p.amount, 0);
   const commissionPayable = totalAdvanceReceived * 0.05; // 5% mock commission
   const totalProperties = myFlats.length;
 
@@ -97,8 +174,8 @@ export default function OwnerDashboard() {
               </div>
               
               <div className="divide-y divide-gray-50">
-                {myBuildings.map((building) => {
-                  const buildingFlats = flats.filter(f => f.buildingId === building.id);
+                {buildings.map((building) => {
+                  const buildingFlats = building.units;
                   return (
                     <div key={building.id} className="p-6 md:p-8 hover:bg-gray-50/30 transition-colors">
                       <div className="flex justify-between items-start mb-6">
@@ -115,9 +192,9 @@ export default function OwnerDashboard() {
                         {buildingFlats.map(flat => (
                           <div key={flat.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition">
                             <div className="flex justify-between items-center border-b border-gray-100 pb-3 mb-3">
-                              <span className="font-bold text-gray-900">Apt {flat.flat_number}</span>
+                              <span className="font-bold text-gray-900">Apt {flat.unitNumber}</span>
                               <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                                flat.status === 'Available' ? 'bg-emerald-50 text-emerald-700' : 
+                                flat.status === 'Listed' ? 'bg-emerald-50 text-emerald-700' : 
                                 flat.status === 'Booked' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
                               }`}>
                                 {flat.status}
@@ -171,6 +248,10 @@ export default function OwnerDashboard() {
           </div>
 
         </div>
+
+        {loadingData && (
+          <p className="text-center text-sm text-gray-500 mt-6">Loading owner dashboard data...</p>
+        )}
       </div>
     </div>
   );

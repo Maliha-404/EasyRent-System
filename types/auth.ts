@@ -1,12 +1,9 @@
-export type UserRole = "user" | "owner" | "admin";
+export type UserRole = "tenant" | "land_owner" | "flat_owner" | "admin";
 export type UserPersona =
-  | "user"
   | "tenant"
-  | "buyer"
-  | "renter"
-  | "owner"
+  | "land_owner"
+  | "flat_owner"
   | "landlord"
-  | "seller"
   | "central_admin";
 
 export interface AuthProfile {
