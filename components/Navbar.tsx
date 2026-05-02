@@ -36,7 +36,6 @@ export default function Navbar() {
 
   const handleLogout = () => {
     logout();
-    router.push("/");
   };
 
   const dashboardRoute = user ? getDashboardPath(user.role) : "/login";

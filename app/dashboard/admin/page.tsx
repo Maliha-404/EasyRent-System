@@ -3,10 +3,80 @@
 import { useAuth } from "@/context/AuthContext";
 import { canAccessDashboard } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, BarChart3, Building2, CheckCircle2, Layers, LayoutDashboard, MapPinned, Shield, SquareStack, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { Activity, AlertTriangle, BarChart3, Building2, CheckCircle2, Layers, LayoutDashboard, MapPinned, Shield, SquareStack, Users, Pencil, Trash2, Plus, Search, X } from "lucide-react";
 
-type RoleName = "admin" | "tenant" | "land_owner" | "flat_owner";
+type RoleName = "admin" | "tenant" | "owner";
+
+const SearchableSelect = ({ options, value, onChange, placeholder, disabled, required }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      const selected = options.find((o: any) => o.value === value);
+      setSearch(selected ? selected.label : "");
+    }
+  }, [value, options, isOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        const selected = options.find((o: any) => o.value === value);
+        setSearch(selected ? selected.label : "");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [value, options]);
+
+  const filtered = options.filter((o: any) => o.label.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <input
+        type="text"
+        className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm outline-none transition focus:border-blue-500 disabled:opacity-50"
+        placeholder={placeholder}
+        value={search}
+        disabled={disabled}
+        required={required && !value}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setIsOpen(true);
+          onChange({ target: { value: "" } });
+        }}
+        onFocus={() => {
+          setSearch("");
+          setIsOpen(true);
+        }}
+      />
+      {isOpen && !disabled && (
+        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-gray-200 bg-white shadow-lg text-sm text-gray-800">
+          {filtered.length === 0 ? (
+            <li className="px-3 py-2 text-gray-500">No results found</li>
+          ) : (
+            filtered.map((o: any) => (
+              <li
+                key={o.value}
+                className="cursor-pointer px-3 py-2 hover:bg-blue-50"
+                onMouseDown={() => {
+                  setSearch(o.label);
+                  setIsOpen(false);
+                  onChange({ target: { value: o.value } });
+                }}
+              >
+                {o.label}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
 
 type AdminUser = {
   id: string;
@@ -43,8 +113,7 @@ type Unit = {
 type AdminOverview = {
   totals: {
     totalTenants: number;
-    totalLandOwners: number;
-    totalFlatOwners: number;
+    totalOwners: number;
     pendingOwnerApprovals: number;
     blockedUsers: number;
     totalZones: number;
@@ -69,11 +138,18 @@ export default function AdminDashboard() {
 
   const [activePanel, setActivePanel] = useState<PanelKey>("overview");
   const [loadingData, setLoadingData] = useState(true);
-  const [roleFilter, setRoleFilter] = useState<"all" | RoleName>("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | RoleName | "sub_admin">("all");
   const [message, setMessage] = useState("");
+  
+  const [promoteModalUser, setPromoteModalUser] = useState<string | null>(null);
+  const [selectedPerms, setSelectedPerms] = useState<string[]>([]);
+  const PERM_OPTIONS = ["zones", "blocks", "plots", "buildings", "floors", "units"];
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [userForm, setUserForm] = useState({ id: "", fullName: "", email: "", password: "", role: "tenant", phoneNumber: "" });
   const [zones, setZones] = useState<Zone[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [plots, setPlots] = useState<Plot[]>([]);
@@ -81,12 +157,20 @@ export default function AdminDashboard() {
   const [floors, setFloors] = useState<Floor[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
 
-  const [zoneForm, setZoneForm] = useState({ name: "", city: "", description: "" });
-  const [blockForm, setBlockForm] = useState({ zoneId: "", name: "", type: "sector" });
-  const [plotForm, setPlotForm] = useState({ blockId: "", plotNumber: "", address: "", size: "", primaryLandOwnerId: "" });
-  const [buildingForm, setBuildingForm] = useState({ plotId: "", name: "", totalFloors: "" });
-  const [floorForm, setFloorForm] = useState({ buildingId: "", floorNumber: "" });
-  const [unitForm, setUnitForm] = useState({ floorId: "", flatOwnerId: "", unitNumber: "", size: "", bedrooms: "", bathrooms: "", type: "Rent", price: "" });
+  const [zoneForm, setZoneForm] = useState({ id: "", name: "", city: "", description: "" });
+  const [blockForm, setBlockForm] = useState({ id: "", zoneId: "", name: "", type: "sector" });
+  const [plotForm, setPlotForm] = useState({ id: "", zoneId: "", blockId: "", plotNumber: "", address: "", size: "", primaryLandOwnerId: "" });
+  const [buildingForm, setBuildingForm] = useState({ id: "", zoneId: "", blockId: "", plotId: "", name: "", totalFloors: "" });
+  const [floorForm, setFloorForm] = useState({ id: "", zoneId: "", blockId: "", plotId: "", buildingId: "", floorNumber: "" });
+  const [unitForm, setUnitForm] = useState({ id: "", zoneId: "", blockId: "", plotId: "", buildingId: "", floorId: "", flatOwnerId: "", unitNumber: "", size: "", bedrooms: "", bathrooms: "", type: "Rent", price: "" });
+
+  const deleteRecord = async (endpoint: string) => {
+    if (!token) return;
+    if (!confirm("Are you sure you want to delete this record?")) return;
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    if (response.ok) fetchAdminData();
+    else alert((await response.json())?.message || "Failed to delete");
+  };
 
   const fetchAdminData = useCallback(async () => {
     if (!token) return;
@@ -150,8 +234,7 @@ export default function AdminDashboard() {
 
   const totals = overview?.totals || {
     totalTenants: 0,
-    totalLandOwners: 0,
-    totalFlatOwners: 0,
+    totalOwners: 0,
     pendingOwnerApprovals: 0,
     blockedUsers: 0,
     totalZones: 0,
@@ -165,8 +248,7 @@ export default function AdminDashboard() {
 
   const roleChart = [
     { label: "Tenant", value: totals.totalTenants, color: "#2563eb" },
-    { label: "Land Owner", value: totals.totalLandOwners, color: "#f59e0b" },
-    { label: "Flat Owner", value: totals.totalFlatOwners, color: "#10b981" },
+    { label: "Property Owner", value: totals.totalOwners, color: "#10b981" },
   ];
 
   const statusChart = [
@@ -225,9 +307,19 @@ export default function AdminDashboard() {
   const verifiedPlots = plots.filter((p) => p.status.toLowerCase().includes("verified")).length;
   const approvalRate = totals.totalPlots > 0 ? Math.round((verifiedPlots / totals.totalPlots) * 100) : 0;
 
-  const landOwners = useMemo(() => users.filter((u) => u.role === "land_owner"), [users]);
-  const flatOwners = useMemo(() => users.filter((u) => u.role === "flat_owner"), [users]);
-  const filteredUsers = roleFilter === "all" ? users : users.filter((u) => u.role === roleFilter);
+  const owners = useMemo(() => users.filter((u) => u.role === "owner"), [users]);
+  const landOwners = owners;
+  const flatOwners = owners;
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const matchRole = roleFilter === "all" || u.role === roleFilter;
+      const matchSearch = userSearchTerm === "" || 
+        u.fullName.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
+        u.email.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+        (u.phoneNumber && u.phoneNumber.includes(userSearchTerm));
+      return matchRole && matchSearch;
+    });
+  }, [users, roleFilter, userSearchTerm]);
 
   const zoneById = useMemo(() => new Map(zones.map((z) => [z._id, z])), [zones]);
   const blockById = useMemo(() => new Map(blocks.map((b) => [b._id, b])), [blocks]);
@@ -239,18 +331,22 @@ export default function AdminDashboard() {
       title: `${z.name} (${z.city})`,
       subtitle: z.description || "No description",
       chips: [{ label: "Level", value: "Zone" }],
+      onEdit: () => setZoneForm({ id: z._id, name: z.name, city: z.city, description: z.description || "" }),
+      onDelete: () => deleteRecord(`/api/admin/zones/${z._id}`)
     })),
     [zones]
   );
 
   const blockRecords = useMemo(
     () => blocks.map((b) => ({
-      title: `${b.name} (${b.type})`,
+      title: b.type ? `${b.name} (${b.type})` : b.name,
       subtitle: `Zone: ${b.zone?.name || zoneById.get(b.zoneId)?.name || "Unknown"}`,
       chips: [
         { label: "Level", value: "Block" },
         { label: "Zone", value: b.zone?.name || zoneById.get(b.zoneId)?.name || "Unknown" },
       ],
+      onEdit: () => setBlockForm({ id: b._id, zoneId: b.zoneId || "", name: b.name, type: b.type }),
+      onDelete: () => deleteRecord(`/api/admin/blocks/${b._id}`)
     })),
     [blocks, zoneById]
   );
@@ -269,7 +365,10 @@ export default function AdminDashboard() {
           { label: "Zone", value: zone || "Unknown" },
           { label: "Block", value: blockName },
           { label: "Address", value: p.address || "N/A" },
+          { label: "Land Owner", value: p.landOwner?.fullName || "Unknown" },
         ],
+        onEdit: () => setPlotForm({ id: p._id, zoneId: block?.zoneId || "", blockId: p.block?._id || "", plotNumber: p.plotNumber, address: p.address, size: (p as any).size || "", primaryLandOwnerId: p.landOwner?._id || "" }),
+        onDelete: () => deleteRecord(`/api/admin/plots/${p._id}`)
       };
     }),
     [plots, blockById, zoneById]
@@ -291,7 +390,10 @@ export default function AdminDashboard() {
           { label: "Zone", value: zone || "Unknown" },
           { label: "Block", value: blockName },
           { label: "Plot", value: plotNumber },
+          { label: "Land Owner", value: plot?.landOwner?.fullName || "Unknown" },
         ],
+        onEdit: () => setBuildingForm({ id: b._id, zoneId: plot?.block?.zoneId || "", blockId: plot?.block?._id || "", plotId: b.plot?._id || "", name: b.name, totalFloors: String(b.totalFloors) }),
+        onDelete: () => deleteRecord(`/api/admin/buildings/${b._id}`)
       };
     }),
     [buildings, plotById, blockById, zoneById]
@@ -315,7 +417,10 @@ export default function AdminDashboard() {
           { label: "Zone", value: zone || "Unknown" },
           { label: "Block", value: blockName },
           { label: "Building", value: buildingName },
+          { label: "Land Owner", value: plot?.landOwner?.fullName || "Unknown" },
         ],
+        onEdit: () => setFloorForm({ id: f._id, zoneId: plot?.block?.zoneId || "", blockId: plot?.block?._id || "", plotId: building?.plot?._id || "", buildingId: f.building?._id || "", floorNumber: String(f.floorNumber) }),
+        onDelete: () => deleteRecord(`/api/admin/floors/${f._id}`)
       };
     }),
     [floors, buildingById, plotById, blockById, zoneById]
@@ -340,18 +445,21 @@ export default function AdminDashboard() {
           { label: "Floor", value: `#${u.floor?.floorNumber ?? "N/A"}` },
           { label: "Building", value: buildingName },
           { label: "Zone", value: zone || "Unknown" },
+          { label: "Flat Owner", value: u.flatOwner?.fullName || "Unknown" },
         ],
+        onEdit: () => setUnitForm({ id: u._id, zoneId: plot?.block?.zoneId || "", blockId: plot?.block?._id || "", plotId: building?.plot?._id || "", buildingId: floor?.building?._id || "", floorId: u.floor?._id || "", flatOwnerId: u.flatOwner?._id || "", unitNumber: u.unitNumber, size: (u as any).size || "", bedrooms: String((u as any).bedrooms || ""), bathrooms: String((u as any).bathrooms || ""), type: u.type, price: String(u.price || "") }),
+        onDelete: () => deleteRecord(`/api/admin/units/${u._id}`)
       };
     }),
     [units, floors, buildingById, plotById, blockById, zoneById]
   );
 
-  const createRecord = async (endpoint: string, payload: Record<string, unknown>, successMessage: string) => {
+  const createRecord = async (endpoint: string, payload: Record<string, unknown>, successMessage: string, method: string = "POST") => {
     if (!token) return;
     setMessage("");
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: "POST",
+      method,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
@@ -362,11 +470,23 @@ export default function AdminDashboard() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       setMessage(data?.message || "Request failed");
-      return;
+      return false;
     }
 
     setMessage(successMessage);
     fetchAdminData();
+    return true;
+  };
+
+  const handleUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (userForm.id) {
+      const success = await createRecord(`/api/admin/users/${userForm.id}`, userForm, "User updated successfully", "PUT");
+      if (success) setShowUserModal(false);
+    } else {
+      const success = await createRecord("/api/admin/users", userForm, "User created successfully");
+      if (success) setShowUserModal(false);
+    }
   };
 
   const updateUserStatus = async (userId: string, status: "Active" | "Suspended" | "Blocked") => {
@@ -386,13 +506,30 @@ export default function AdminDashboard() {
     }
   };
 
+  const handlePromoteUser = async () => {
+    if (!token || !promoteModalUser) return;
+    const response = await fetch(`${API_BASE_URL}/api/admin/users/${promoteModalUser}/promote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ permissions: selectedPerms }),
+    });
+    if (response.ok) {
+      setPromoteModalUser(null);
+      setSelectedPerms([]);
+      fetchAdminData();
+    } else {
+      const data = await response.json();
+      setMessage(data?.message || "Failed to promote user");
+    }
+  };
+
   if (isLoading || !user) return null;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
-        <aside className="bg-gray-900 text-white rounded-2xl p-4 h-fit lg:sticky lg:top-24">
-          <h1 className="text-xl font-bold mb-5">Admin Sidebar</h1>
+        <aside className="bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-700 text-white rounded-2xl p-4 h-[80vh] lg:sticky lg:top-24 shadow-lg border border-slate-800">
+          <h1 className="text-xl font-bold mb-5 tracking-tight">Admin Command</h1>
           <div className="space-y-1">
             {[
               { key: "overview", label: "Overview", icon: LayoutDashboard },
@@ -402,16 +539,23 @@ export default function AdminDashboard() {
               { key: "plots", label: "Plots", icon: Building2 },
               { key: "buildings", label: "Buildings", icon: Building2 },
               { key: "floors", label: "Floors", icon: Layers },
-              { key: "units", label: "Units", icon: Shield },
-            ].map((item) => (
+              { key: "units", label: "Units", icon: Activity },
+            ].filter(tab => {
+              if (user?.role === "admin") return true;
+              if (user?.role === "sub_admin") {
+                if (tab.key === "overview") return true; // always show overview
+                return user.permissions?.includes(tab.key);
+              }
+              return false;
+            }).map((item) => (
               <button
                 key={item.key}
                 onClick={() => setActivePanel(item.key as PanelKey)}
-                className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 transition ${
-                  activePanel === item.key ? "bg-white text-gray-900" : "text-gray-300 hover:bg-white/10"
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition font-medium ${
+                  activePanel === item.key ? "bg-white/10 text-white shadow-inner" : "text-slate-300 hover:bg-white/5 hover:text-white"
                 }`}
               >
-                <item.icon className="w-4 h-4" /> {item.label}
+                <item.icon className="w-5 h-5" /> {item.label}
               </button>
             ))}
           </div>
@@ -490,7 +634,7 @@ export default function AdminDashboard() {
                     <SnapshotItem label="Coverage" value={`${totals.totalZones} zones, ${totals.totalBlocks} blocks`} />
                     <SnapshotItem label="Asset depth" value={`${totals.totalPlots} plots, ${totals.totalBuildings} buildings`} />
                     <SnapshotItem label="Operational stock" value={`${totals.totalFloors} floors, ${totals.totalUnits} units`} />
-                    <SnapshotItem label="Owner network" value={`${totals.totalLandOwners + totals.totalFlatOwners} owners`} />
+                    <SnapshotItem label="Owner network" value={`${totals.totalOwners} owners`} />
                     <SnapshotItem label="Tenant base" value={`${totals.totalTenants} tenants`} />
                     <SnapshotItem label="Approval performance" value={`${approvalRate}% plot verification rate`} />
                   </div>
@@ -501,8 +645,7 @@ export default function AdminDashboard() {
                 <h3 className="text-lg font-bold text-gray-900 mb-4">Detailed Counters</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                   <StatCard label="Tenants" value={totals.totalTenants} />
-                  <StatCard label="Land Owners" value={totals.totalLandOwners} />
-                  <StatCard label="Flat Owners" value={totals.totalFlatOwners} />
+                  <StatCard label="Property Owners" value={totals.totalOwners} />
                   <StatCard label="Pending Owner Approvals" value={totals.pendingOwnerApprovals} />
                   <StatCard label="Blocked Users" value={totals.blockedUsers} />
                   <StatCard label="Zones" value={totals.totalZones} />
@@ -519,19 +662,40 @@ export default function AdminDashboard() {
 
           {activePanel === "users" && (
             <section className="bg-white rounded-2xl border border-gray-100 p-6">
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
                 <h2 className="text-2xl font-bold text-gray-900">Role & User Management</h2>
-                <select
-                  value={roleFilter}
-                  onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="all">All</option>
-                  <option value="admin">Admin</option>
-                  <option value="tenant">Tenant</option>
-                  <option value="land_owner">Land Owner</option>
-                  <option value="flat_owner">Flat Owner</option>
-                </select>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search users..."
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm w-64 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <select
+                    value={roleFilter}
+                    onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="all">All Roles</option>
+                    <option value="admin">Admin</option>
+                    <option value="sub_admin">Sub Admin</option>
+                    <option value="tenant">Tenant</option>
+                    <option value="owner">Property Owner</option>
+                  </select>
+                  <button
+                    onClick={() => {
+                      setUserForm({ id: "", fullName: "", email: "", password: "", role: "tenant", phoneNumber: "" });
+                      setShowUserModal(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Add User
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -554,10 +718,23 @@ export default function AdminDashboard() {
                         <td className="py-2">{row.status}</td>
                         <td className="py-2">
                           {row.role !== "admin" && (
-                            <div className="flex gap-2">
-                              <button className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700" onClick={() => updateUserStatus(row.id, "Active")}>Activate</button>
-                              <button className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700" onClick={() => updateUserStatus(row.id, "Suspended")}>Suspend</button>
-                              <button className="text-xs px-2 py-1 rounded bg-red-100 text-red-700" onClick={() => updateUserStatus(row.id, "Blocked")}>Block</button>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="text-xs px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors flex items-center gap-1 shadow-sm"
+                                onClick={() => {
+                                  setUserForm({ id: row.id, fullName: row.fullName, email: row.email, password: "", role: row.role, phoneNumber: row.phoneNumber || "" });
+                                  setShowUserModal(true);
+                                }}
+                              >
+                                <Pencil className="w-3 h-3" /> Edit
+                              </button>
+                              <button className="text-xs px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 font-medium hover:bg-emerald-100 transition-colors shadow-sm" onClick={() => updateUserStatus(row.id, "Active")}>Activate</button>
+                              <button className="text-xs px-3 py-1.5 rounded-md bg-amber-50 text-amber-700 font-medium hover:bg-amber-100 transition-colors shadow-sm" onClick={() => updateUserStatus(row.id, "Suspended")}>Suspend</button>
+                              <button className="text-xs px-3 py-1.5 rounded-md bg-red-50 text-red-700 font-medium hover:bg-red-100 transition-colors shadow-sm" onClick={() => updateUserStatus(row.id, "Blocked")}>Block</button>
+                              <button className="text-xs px-3 py-1.5 rounded-md bg-rose-50 text-rose-700 font-medium hover:bg-rose-100 transition-colors flex items-center gap-1 shadow-sm" onClick={() => deleteRecord(`/api/admin/users/${row.id}`)}><Trash2 className="w-3 h-3"/> Delete</button>
+                              {user?.role === "admin" && (
+                                <button className="text-xs px-3 py-1.5 rounded-md bg-purple-50 text-purple-700 font-medium hover:bg-purple-100 transition-colors shadow-sm" onClick={() => setPromoteModalUser(row.id)}>Make Sub-admin</button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -571,6 +748,51 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {showUserModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                  <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xl font-bold text-gray-900">{userForm.id ? "Edit User" : "Add New User"}</h3>
+                      <button onClick={() => setShowUserModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
+                        <X className="w-5 h-5 text-gray-500" />
+                      </button>
+                    </div>
+                    <form onSubmit={handleUserSubmit} className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                        <input className={fieldClass} value={userForm.fullName} onChange={e => setUserForm(p => ({ ...p, fullName: e.target.value }))} required />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input type="email" className={fieldClass} value={userForm.email} onChange={e => setUserForm(p => ({ ...p, email: e.target.value }))} required />
+                      </div>
+                      {!userForm.id && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                          <input type="password" minLength={6} className={fieldClass} value={userForm.password} onChange={e => setUserForm(p => ({ ...p, password: e.target.value }))} required />
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                        <input type="text" className={fieldClass} value={userForm.phoneNumber} onChange={e => setUserForm(p => ({ ...p, phoneNumber: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                        <select className={fieldClass} value={userForm.role} onChange={e => setUserForm(p => ({ ...p, role: e.target.value as RoleName }))} required>
+                          <option value="tenant">Tenant</option>
+                          <option value="owner">Property Owner</option>
+                          {user?.role === "admin" && <option value="sub_admin">Sub Admin</option>}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-3 mt-6">
+                        <button type="button" onClick={() => setShowUserModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl">Cancel</button>
+                        <button type="submit" className={primaryBtnClass}>{userForm.id ? "Save Changes" : "Add User"}</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
@@ -582,15 +804,22 @@ export default function AdminDashboard() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createRecord("/api/admin/zones", zoneForm, "Zone created successfully");
-                    setZoneForm({ name: "", city: "", description: "" });
+                    if (zoneForm.id) {
+                      createRecord(`/api/admin/zones/${zoneForm.id}`, zoneForm, "Zone updated successfully", "PUT");
+                    } else {
+                      createRecord("/api/admin/zones", zoneForm, "Zone created successfully");
+                    }
+                    setZoneForm({ id: "", name: "", city: "", description: "" });
                   }}
-                  className="grid grid-cols-1 md:grid-cols-4 gap-3"
+                  className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end"
                 >
                   <input className={fieldClass} placeholder="Zone name" value={zoneForm.name} onChange={(e) => setZoneForm((p) => ({ ...p, name: e.target.value }))} required />
                   <input className={fieldClass} placeholder="City" value={zoneForm.city} onChange={(e) => setZoneForm((p) => ({ ...p, city: e.target.value }))} required />
                   <input className={fieldClass} placeholder="Description" value={zoneForm.description} onChange={(e) => setZoneForm((p) => ({ ...p, description: e.target.value }))} />
-                  <button className={primaryBtnClass} type="submit">Add Zone</button>
+                  <div className="flex gap-2">
+                    {zoneForm.id && <button type="button" onClick={() => setZoneForm({ id: "", name: "", city: "", description: "" })} className="w-full md:w-auto rounded-xl bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-300">Cancel</button>}
+                    <button className={primaryBtnClass} type="submit">{zoneForm.id ? "Save" : "Add Zone"}</button>
+                  </div>
                 </form>
               }
               rows={zoneRecords}
@@ -605,18 +834,28 @@ export default function AdminDashboard() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createRecord("/api/admin/blocks", blockForm, "Block created successfully");
-                    setBlockForm({ zoneId: "", name: "", type: "sector" });
+                    if (blockForm.id) {
+                      createRecord(`/api/admin/blocks/${blockForm.id}`, blockForm, "Block updated successfully", "PUT");
+                    } else {
+                      createRecord("/api/admin/blocks", blockForm, "Block created successfully");
+                    }
+                    setBlockForm({ id: "", zoneId: "", name: "", type: "sector" });
                   }}
-                  className="grid grid-cols-1 md:grid-cols-4 gap-3"
+                  className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end"
                 >
-                  <select className={fieldClass} value={blockForm.zoneId} onChange={(e) => setBlockForm((p) => ({ ...p, zoneId: e.target.value }))} required>
-                    <option value="">Select zone</option>
-                    {zones.map((zone) => <option key={zone._id} value={zone._id}>{zone.name}</option>)}
-                  </select>
+                  <SearchableSelect 
+                    options={zones.map(z => ({ label: z.name, value: z._id }))} 
+                    value={blockForm.zoneId} 
+                    onChange={(e: any) => setBlockForm((p) => ({ ...p, zoneId: e.target.value }))} 
+                    placeholder="Select zone" 
+                    required 
+                  />
                   <input className={fieldClass} placeholder="Block name" value={blockForm.name} onChange={(e) => setBlockForm((p) => ({ ...p, name: e.target.value }))} required />
                   <input className={fieldClass} placeholder="Type (sector/project)" value={blockForm.type} onChange={(e) => setBlockForm((p) => ({ ...p, type: e.target.value }))} />
-                  <button className={primaryBtnClass} type="submit">Add Block</button>
+                  <div className="flex gap-2">
+                    {blockForm.id && <button type="button" onClick={() => setBlockForm({ id: "", zoneId: "", name: "", type: "sector" })} className="w-full md:w-auto rounded-xl bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-300">Cancel</button>}
+                    <button className={primaryBtnClass} type="submit">{blockForm.id ? "Save" : "Add Block"}</button>
+                  </div>
                 </form>
               }
               rows={blockRecords}
@@ -631,23 +870,24 @@ export default function AdminDashboard() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createRecord("/api/admin/plots", { ...plotForm, size: Number(plotForm.size) || null }, "Plot created successfully");
-                    setPlotForm({ blockId: "", plotNumber: "", address: "", size: "", primaryLandOwnerId: "" });
+                    if (plotForm.id) {
+                      createRecord(`/api/admin/plots/${plotForm.id}`, { ...plotForm, size: Number(plotForm.size) || null }, "Plot updated successfully", "PUT");
+                    } else {
+                      createRecord("/api/admin/plots", { ...plotForm, size: Number(plotForm.size) || null }, "Plot created successfully");
+                    }
+                    setPlotForm({ id: "", blockId: "", zoneId: "", plotNumber: "", address: "", size: "", primaryLandOwnerId: "" });
                   }}
-                  className="grid grid-cols-1 md:grid-cols-6 gap-3"
+                  className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end"
                 >
-                  <select className={fieldClass} value={plotForm.blockId} onChange={(e) => setPlotForm((p) => ({ ...p, blockId: e.target.value }))} required>
-                    <option value="">Block</option>
-                    {blocks.map((b) => <option key={b._id} value={b._id}>{b.name} ({b.zone?.name || zoneById.get(b.zoneId)?.name || "Unknown zone"})</option>)}
-                  </select>
-                  <select className={fieldClass} value={plotForm.primaryLandOwnerId} onChange={(e) => setPlotForm((p) => ({ ...p, primaryLandOwnerId: e.target.value }))} required>
-                    <option value="">Land owner</option>
-                    {landOwners.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
-                  </select>
+                  <SearchableSelect options={blocks.map(b => ({ label: `${b.name} (${b.zone?.name || zoneById.get(b.zoneId)?.name || 'Unknown Zone'})`, value: b._id }))} value={plotForm.blockId} onChange={(e: any) => setPlotForm((p) => ({ ...p, blockId: e.target.value }))} placeholder="Select Block" required />
+                  <SearchableSelect options={landOwners.map((u) => ({ label: u.fullName, value: u.id }))} value={plotForm.primaryLandOwnerId} onChange={(e: any) => setPlotForm((p) => ({ ...p, primaryLandOwnerId: e.target.value }))} placeholder="Land owner" required />
                   <input className={fieldClass} placeholder="Plot number" value={plotForm.plotNumber} onChange={(e) => setPlotForm((p) => ({ ...p, plotNumber: e.target.value }))} required />
                   <input className={fieldClass} placeholder="Address" value={plotForm.address} onChange={(e) => setPlotForm((p) => ({ ...p, address: e.target.value }))} />
                   <input className={fieldClass} placeholder="Size" value={plotForm.size} onChange={(e) => setPlotForm((p) => ({ ...p, size: e.target.value }))} />
-                  <button className={primaryBtnClass} type="submit">Add Plot</button>
+                  <div className="flex gap-2">
+                    {plotForm.id && <button type="button" onClick={() => setPlotForm({ id: "", blockId: "", zoneId: "", plotNumber: "", address: "", size: "", primaryLandOwnerId: "" })} className="w-full md:w-auto rounded-xl bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-300">Cancel</button>}
+                    <button className={primaryBtnClass} type="submit">{plotForm.id ? "Save" : "Add Plot"}</button>
+                  </div>
                 </form>
               }
               rows={plotRecords}
@@ -662,22 +902,28 @@ export default function AdminDashboard() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createRecord("/api/admin/buildings", { ...buildingForm, totalFloors: Number(buildingForm.totalFloors) || 0 }, "Building created successfully");
-                    setBuildingForm({ plotId: "", name: "", totalFloors: "" });
+                    if (buildingForm.id) {
+                      createRecord(`/api/admin/buildings/${buildingForm.id}`, { ...buildingForm, totalFloors: Number(buildingForm.totalFloors) || 0 }, "Building updated successfully", "PUT");
+                    } else {
+                      createRecord("/api/admin/buildings", { ...buildingForm, totalFloors: Number(buildingForm.totalFloors) || 0 }, "Building created successfully");
+                    }
+                    setBuildingForm({ id: "", zoneId: "", blockId: "", plotId: "", name: "", totalFloors: "" });
                   }}
-                  className="grid grid-cols-1 md:grid-cols-4 gap-3"
+                  className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end"
                 >
-                  <select className={fieldClass} value={buildingForm.plotId} onChange={(e) => setBuildingForm((p) => ({ ...p, plotId: e.target.value }))} required>
-                    <option value="">Plot</option>
-                    {plots.map((p) => {
-                      const block = p.block?._id ? blockById.get(p.block._id) : null;
-                      const zone = block?.zone?.name || (block?.zoneId ? zoneById.get(block.zoneId)?.name : "Unknown zone");
-                      return <option key={p._id} value={p._id}>{p.plotNumber} ({p.block?.name || block?.name || "Unknown block"}, {zone || "Unknown zone"})</option>;
-                    })}
-                  </select>
+                  <SearchableSelect options={plots.map(p => {
+                    const blockId = p.block?._id || p.blockId;
+                    const block = blockId ? blockById.get(blockId) : null;
+                    const zone = block?.zone?.name || (block?.zoneId ? zoneById.get(block.zoneId)?.name : "Unknown");
+                    const blockName = p.block?.name || block?.name || "Unknown";
+                    return { label: `Plot ${p.plotNumber} (${blockName}, ${zone})`, value: p._id };
+                  })} value={buildingForm.plotId} onChange={(e: any) => setBuildingForm((p) => ({ ...p, plotId: e.target.value }))} placeholder="Select Plot" required />
                   <input className={fieldClass} placeholder="Building name" value={buildingForm.name} onChange={(e) => setBuildingForm((p) => ({ ...p, name: e.target.value }))} required />
                   <input className={fieldClass} placeholder="Total floors" value={buildingForm.totalFloors} onChange={(e) => setBuildingForm((p) => ({ ...p, totalFloors: e.target.value }))} />
-                  <button className={primaryBtnClass} type="submit">Add Building</button>
+                  <div className="flex gap-2">
+                    {buildingForm.id && <button type="button" onClick={() => setBuildingForm({ id: "", zoneId: "", blockId: "", plotId: "", name: "", totalFloors: "" })} className="w-full md:w-auto rounded-xl bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-300">Cancel</button>}
+                    <button className={primaryBtnClass} type="submit">{buildingForm.id ? "Save" : "Add Building"}</button>
+                  </div>
                 </form>
               }
               rows={buildingRecords}
@@ -692,20 +938,28 @@ export default function AdminDashboard() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createRecord("/api/admin/floors", { ...floorForm, floorNumber: Number(floorForm.floorNumber) }, "Floor created successfully");
-                    setFloorForm({ buildingId: "", floorNumber: "" });
+                    if (floorForm.id) {
+                      createRecord(`/api/admin/floors/${floorForm.id}`, { ...floorForm, floorNumber: Number(floorForm.floorNumber) }, "Floor updated successfully", "PUT");
+                    } else {
+                      createRecord("/api/admin/floors", { ...floorForm, floorNumber: Number(floorForm.floorNumber) }, "Floor created successfully");
+                    }
+                    setFloorForm({ id: "", zoneId: "", blockId: "", plotId: "", buildingId: "", floorNumber: "" });
                   }}
-                  className="grid grid-cols-1 md:grid-cols-3 gap-3"
+                  className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end"
                 >
-                  <select className={fieldClass} value={floorForm.buildingId} onChange={(e) => setFloorForm((p) => ({ ...p, buildingId: e.target.value }))} required>
-                    <option value="">Building</option>
-                    {buildings.map((b) => {
-                      const plot = b.plot?._id ? plotById.get(b.plot._id) : null;
-                      return <option key={b._id} value={b._id}>{b.name} ({b.plot?.plotNumber || plot?.plotNumber || "Unknown plot"})</option>;
-                    })}
-                  </select>
+                  <SearchableSelect options={buildings.map(b => {
+                    const plot = b.plot?._id ? plotById.get(b.plot._id) : null;
+                    const blockId = plot?.block?._id || plot?.blockId;
+                    const block = blockId ? blockById.get(blockId) : null;
+                    const blockName = plot?.block?.name || block?.name || "Unknown";
+                    const plotNumber = b.plot?.plotNumber || plot?.plotNumber || "Unknown";
+                    return { label: `${b.name} (Plot ${plotNumber}, ${blockName})`, value: b._id };
+                  })} value={floorForm.buildingId} onChange={(e: any) => setFloorForm((p) => ({ ...p, buildingId: e.target.value }))} placeholder="Select Building" required />
                   <input className={fieldClass} placeholder="Floor number" value={floorForm.floorNumber} onChange={(e) => setFloorForm((p) => ({ ...p, floorNumber: e.target.value }))} required />
-                  <button className={primaryBtnClass} type="submit">Add Floor</button>
+                  <div className="flex gap-2">
+                    {floorForm.id && <button type="button" onClick={() => setFloorForm({ id: "", zoneId: "", blockId: "", plotId: "", buildingId: "", floorNumber: "" })} className="w-full md:w-auto rounded-xl bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-300">Cancel</button>}
+                    <button className={primaryBtnClass} type="submit">{floorForm.id ? "Save" : "Add Floor"}</button>
+                  </div>
                 </form>
               }
               rows={floorRecords}
@@ -720,36 +974,40 @@ export default function AdminDashboard() {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    createRecord(
-                      "/api/admin/units",
-                      {
+                    const payload = {
                         ...unitForm,
                         size: Number(unitForm.size) || null,
                         bedrooms: Number(unitForm.bedrooms) || null,
                         bathrooms: Number(unitForm.bathrooms) || null,
                         price: Number(unitForm.price) || null,
-                      },
-                      "Unit created successfully"
-                    );
-                    setUnitForm({ floorId: "", flatOwnerId: "", unitNumber: "", size: "", bedrooms: "", bathrooms: "", type: "Rent", price: "" });
+                    };
+                    if (unitForm.id) {
+                      createRecord(`/api/admin/units/${unitForm.id}`, payload, "Unit updated successfully", "PUT");
+                    } else {
+                      createRecord("/api/admin/units", payload, "Unit created successfully");
+                    }
+                    setUnitForm({ id: "", zoneId: "", blockId: "", plotId: "", buildingId: "", floorId: "", flatOwnerId: "", unitNumber: "", size: "", bedrooms: "", bathrooms: "", type: "Rent", price: "" });
                   }}
-                  className="grid grid-cols-1 md:grid-cols-5 gap-3"
+                  className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end"
                 >
-                  <select className={fieldClass} value={unitForm.floorId} onChange={(e) => setUnitForm((p) => ({ ...p, floorId: e.target.value }))} required>
-                    <option value="">Floor</option>
-                    {floors.map((f) => <option key={f._id} value={f._id}>Floor {f.floorNumber} ({f.building?.name || "Unknown building"})</option>)}
-                  </select>
-                  <select className={fieldClass} value={unitForm.flatOwnerId} onChange={(e) => setUnitForm((p) => ({ ...p, flatOwnerId: e.target.value }))} required>
-                    <option value="">Flat owner</option>
-                    {flatOwners.map((u) => <option key={u.id} value={u.id}>{u.fullName}</option>)}
-                  </select>
+                  <SearchableSelect options={floors.map(f => {
+                    const building = f.building?._id ? buildingById.get(f.building._id) : null;
+                    const plot = building?.plot?._id ? plotById.get(building.plot._id) : null;
+                    const plotNumber = building?.plot?.plotNumber || plot?.plotNumber || "Unknown";
+                    const buildingName = f.building?.name || building?.name || "Unknown";
+                    return { label: `Floor ${f.floorNumber} (${buildingName}, Plot ${plotNumber})`, value: f._id };
+                  })} value={unitForm.floorId} onChange={(e: any) => setUnitForm((p) => ({ ...p, floorId: e.target.value }))} placeholder="Select Floor" required />
+                  <SearchableSelect options={flatOwners.map((u) => ({ label: u.fullName, value: u.id }))} value={unitForm.flatOwnerId} onChange={(e: any) => setUnitForm((p) => ({ ...p, flatOwnerId: e.target.value }))} placeholder="Flat owner" required />
                   <input className={fieldClass} placeholder="Unit number" value={unitForm.unitNumber} onChange={(e) => setUnitForm((p) => ({ ...p, unitNumber: e.target.value }))} required />
                   <input className={fieldClass} placeholder="Type (Rent/Sale)" value={unitForm.type} onChange={(e) => setUnitForm((p) => ({ ...p, type: e.target.value }))} />
                   <input className={fieldClass} placeholder="Price" value={unitForm.price} onChange={(e) => setUnitForm((p) => ({ ...p, price: e.target.value }))} />
                   <input className={fieldClass} placeholder="Size" value={unitForm.size} onChange={(e) => setUnitForm((p) => ({ ...p, size: e.target.value }))} />
                   <input className={fieldClass} placeholder="Beds" value={unitForm.bedrooms} onChange={(e) => setUnitForm((p) => ({ ...p, bedrooms: e.target.value }))} />
                   <input className={fieldClass} placeholder="Baths" value={unitForm.bathrooms} onChange={(e) => setUnitForm((p) => ({ ...p, bathrooms: e.target.value }))} />
-                  <button className={`${primaryBtnClass} md:col-span-2`} type="submit">Add Unit</button>
+                  <div className="flex gap-2 md:col-span-2">
+                    {unitForm.id && <button type="button" onClick={() => setUnitForm({ id: "", zoneId: "", blockId: "", plotId: "", buildingId: "", floorId: "", flatOwnerId: "", unitNumber: "", size: "", bedrooms: "", bathrooms: "", type: "Rent", price: "" })} className="w-full md:w-auto rounded-xl bg-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-300">Cancel</button>}
+                    <button className={primaryBtnClass} type="submit">{unitForm.id ? "Save" : "Add Unit"}</button>
+                  </div>
                 </form>
               }
               rows={unitRecords}
@@ -761,6 +1019,30 @@ export default function AdminDashboard() {
           )}
         </main>
       </div>
+
+      {promoteModalUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6">
+            <h3 className="text-xl font-bold mb-4">Promote to Sub-admin</h3>
+            <p className="text-sm text-gray-500 mb-4">Select the modules this sub-admin can manage.</p>
+            <div className="space-y-2 mb-6">
+              {PERM_OPTIONS.map(p => (
+                <label key={p} className="flex items-center gap-2">
+                  <input type="checkbox" checked={selectedPerms.includes(p)} onChange={(e) => {
+                    if (e.target.checked) setSelectedPerms([...selectedPerms, p]);
+                    else setSelectedPerms(selectedPerms.filter(x => x !== p));
+                  }} />
+                  <span className="capitalize">{p}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setPromoteModalUser(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+              <button onClick={handlePromoteUser} className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">Confirm Promotion</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -964,8 +1246,17 @@ function EntityPanel({
     title: string;
     subtitle?: string;
     chips?: Array<{ label: string; value: string }>;
+    onEdit?: () => void;
+    onDelete?: () => void;
   }>;
 }) {
+  const [search, setSearch] = useState("");
+  
+  const filteredRows = rows.filter(r => 
+    r.title.toLowerCase().includes(search.toLowerCase()) || 
+    (r.subtitle && r.subtitle.toLowerCase().includes(search.toLowerCase()))
+  );
+
   return (
     <section className="rounded-2xl border border-gray-100 bg-white p-6">
       <div className="mb-5 flex flex-col gap-1">
@@ -976,28 +1267,56 @@ function EntityPanel({
       <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/70 to-indigo-50/40 p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700">Create New Record</h3>
-          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-blue-700 shadow-sm">Live Validation</span>
         </div>
         {createForm}
       </div>
 
       <div className="mt-5 overflow-hidden rounded-xl border border-gray-100">
-        <div className="bg-gray-50 px-3 py-2 text-xs font-semibold uppercase text-gray-500">Records</div>
+        <div className="bg-gray-50 px-3 py-2 flex justify-between items-center">
+          <span className="text-xs font-semibold uppercase text-gray-500">Records</span>
+          <input 
+            type="text" 
+            placeholder="Search..." 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-2 py-1 text-sm border border-gray-200 rounded outline-none focus:border-blue-500 w-48"
+          />
+        </div>
         <div className="max-h-80 overflow-auto">
-          {rows.length === 0 && <div className="px-3 py-3 text-sm text-gray-500">No records yet.</div>}
-          {rows.map((row, index) => (
-            <div key={`${row.title}-${index}`} className="border-t border-gray-100 px-3 py-3">
-              <p className="text-sm font-semibold text-gray-900">{row.title}</p>
-              {row.subtitle && <p className="mt-1 text-xs text-gray-500">{row.subtitle}</p>}
-              {row.chips && row.chips.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {row.chips.map((chip, chipIndex) => (
-                    <span key={`${chip.label}-${chipIndex}`} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
-                      {chip.label}: {chip.value}
-                    </span>
-                  ))}
-                </div>
-              )}
+          {filteredRows.length === 0 && <div className="px-3 py-3 text-sm text-gray-500">No records found.</div>}
+          {filteredRows.map((row, index) => (
+            <div key={`${row.title}-${index}`} className="border-t border-gray-100 px-3 py-3 flex justify-between items-start">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{row.title}</p>
+                {row.subtitle && <p className="mt-1 text-xs text-gray-500">{row.subtitle}</p>}
+                {row.chips && row.chips.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {row.chips.map((chip, chipIndex) => (
+                      <span key={`${chip.label}-${chipIndex}`} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
+                        {chip.label}: {chip.value}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {row.onEdit && (
+                  <button 
+                    onClick={row.onEdit}
+                    className="text-xs text-blue-600 font-semibold hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition"
+                  >
+                    Edit
+                  </button>
+                )}
+                {row.onDelete && (
+                  <button 
+                    onClick={row.onDelete}
+                    className="text-xs text-red-500 font-semibold hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded transition"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

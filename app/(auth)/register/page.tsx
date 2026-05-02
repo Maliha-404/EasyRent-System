@@ -9,7 +9,7 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"tenant" | "land_owner" | "flat_owner">("tenant");
+  const [role, setRole] = useState<"tenant" | "owner">("tenant");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [profilePicture, setProfilePicture] = useState("");
   const [address, setAddress] = useState("");
@@ -104,11 +104,10 @@ export default function RegisterPage() {
           <select
             className="w-full px-4 py-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             value={role}
-            onChange={(e) => setRole(e.target.value as "tenant" | "land_owner" | "flat_owner")}
+            onChange={(e) => setRole(e.target.value as "tenant" | "owner")}
           >
             <option value="tenant">Tenant</option>
-            <option value="land_owner">Land Owner</option>
-            <option value="flat_owner">Flat Owner</option>
+            <option value="owner">Property Owner</option>
           </select>
           <input
             className="w-full px-4 py-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"

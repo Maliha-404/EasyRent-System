@@ -39,8 +39,8 @@ const normalizeUser = (raw: unknown): AuthUser | null => {
     role: (
       role === "admin" ||
       role === "tenant" ||
-      role === "land_owner" ||
-      role === "flat_owner"
+      role === "owner" ||
+      role === "sub_admin"
         ? role
         : "tenant"
     ) as AuthUser["role"],
@@ -175,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     localStorage.removeItem(USER_STORAGE_KEY);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.location.href = "/";
   };
 
   return (

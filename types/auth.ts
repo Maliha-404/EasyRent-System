@@ -1,9 +1,7 @@
-export type UserRole = "tenant" | "land_owner" | "flat_owner" | "admin";
+export type UserRole = "tenant" | "owner" | "admin" | "sub_admin";
 export type UserPersona =
   | "tenant"
-  | "land_owner"
-  | "flat_owner"
-  | "landlord"
+  | "owner"
   | "central_admin";
 
 export interface AuthProfile {
@@ -19,8 +17,10 @@ export interface AuthUser {
   fullName: string;
   email: string;
   role: UserRole;
-  phoneNumber: string;
-  profile: AuthProfile;
+  persona: string;
+  phoneNumber?: string;
+  profile?: AuthProfile;
+  permissions?: string[];
 }
 
 export interface LoginPayload {

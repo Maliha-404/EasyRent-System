@@ -63,10 +63,10 @@ export default function UserDashboard() {
     load();
   }, [isLoading, token, user]);
 
-  if (isLoading || !user) return null;
-
   const userBookings = bookings;
   const userPayments = useMemo(() => payments.filter((payment) => payment.purpose === "Rent"), [payments]);
+
+  if (isLoading || !user) return null;
 
   const getStatusIcon = (status: string) => {
     switch (status) {
